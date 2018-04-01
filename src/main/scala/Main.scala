@@ -10,9 +10,10 @@ class Note(val key: Int) {
 
   val name: String = noteName(key)
   def keyIn = (k: Int) => (key - k) % 12
+  def keyInName(k: Int): String = Vector("Do", "Do+", "Re", "Re+", "Mi", "Fa", "Fa+", "So", "So+", "La", "La+", "Ti", "Do")(keyIn(k))
 
   private def noteName (key: Int): String = {
-    val name: List[String] = List("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
+    val name: Vector[String] = Vector("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
     val note = key % 12
     val octave = key / 12 - 2
 
@@ -33,8 +34,12 @@ class MidiSequencer extends Receiver {
 
   override def send(message: MidiMessage, timeStamp: Long): Unit = {
     val status = message.getStatus
-    val key = message.getMessage()(1)
-    val velocity = message.getMessage()(2)
+    val msg = message.getMessage
+    if (message.getLength < 3) {
+      return
+    }
+    val key = msg(1)
+    val velocity = msg(2)
     val noteOn = status == 0x90 && velocity > 0
     if (noteOn) {
       val note = new Note(key)
@@ -47,41 +52,51 @@ class MidiSequencer extends Receiver {
 
 
 class Teacher (receiver: Receiver, transmitter: Transmitter) {
+  /**
+    * TODO: play a melody (multiple notes in sequence)
+    * play different instrument?
+    */
   val sequencer: MidiSequencer = new MidiSequencer
   transmitter.setReceiver(sequencer)
 
+  def play(note: Note, duration: Int): Unit = {
+    val msg : ShortMessage = new ShortMessage()
+    msg.setMessage(ShortMessage.NOTE_ON, 0, note.key, 55)
+    receiver.send(msg, -1)
+    Thread.sleep(500)
+    val msgOff : ShortMessage = new ShortMessage()
+    msgOff.setMessage(ShortMessage.NOTE_OFF, 0, note.key, 50)
+    receiver.send(msgOff, -1)
+  }
+
   def run: Unit = {
     val majorKey = Seq(0,2,4,5,7,9,11,12)
-
     val keyNote = new Note(65) //F3
     var purposeNote = keyNote
     var total = 0
     var correct = 0
     while (true) {
-
-      Thread.sleep(1500)
-      val msg : ShortMessage = new ShortMessage()
-      msg.setMessage(ShortMessage.NOTE_ON, 0, purposeNote.key, 50)
-      receiver.send(msg, -1)
-      Thread.sleep(500)
-      val msgOff : ShortMessage = new ShortMessage()
-      msgOff.setMessage(ShortMessage.NOTE_OFF, 0, purposeNote.key, 50)
-      receiver.send(msgOff, -1)
+      play(purposeNote, 500);
 
       var noteHit = false
       var attempts = 0
       while (!noteHit) {
         // Check note
         val note = sequencer.sequence.read
-        println(note.name)
+        println(note.keyInName(keyNote.key))
         noteHit = note.key == purposeNote.key
         attempts += 1
+        if (!noteHit && attempts % 3 == 0) {
+          Thread.sleep(500)
+          play(purposeNote, 500)
+        }
       }
       if (attempts == 1) correct += 1
       total += 1
       println(s"${correct}/${total} ~ ${correct*100/total}%")
 
       purposeNote = new Note(keyNote.key + Random.shuffle(majorKey).head)
+      Thread.sleep(1500)
     }
   }
 }
